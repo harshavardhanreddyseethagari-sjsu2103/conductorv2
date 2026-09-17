@@ -260,7 +260,8 @@ function timeAgo(iso) {
 }
 
 function connect() {
-  const ws = new WebSocket("ws://" + location.host + "/ws/dashboard");
+  const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(wsProtocol + "//" + location.host + "/ws/dashboard");
   ws.onmessage = e => handle(JSON.parse(e.data));
   ws.onclose = () => setTimeout(connect, 1500);
 }
