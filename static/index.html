@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conductor v2 — Resource-Aware ML Queue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #0B0D0F;
+  --surface: #14171A;
+  --border:  #232830;
+  --text:    #E8E9EA;
+  --text-2:  #8A9099;
+  --text-3:  #565C66;
+  --orange:  #FF6B35;
+  --teal:    #3DCB7A;
+  --amber:   #F4C430;
+  --purple:  #8A5CF6;
+  --red:     #FF5C5C;
+  --blue:    #4EA1FF;
+  --nav-h:   56px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: 'Inter', sans-serif;
+  height: 100%; display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* Nav */
+nav {
+  height: var(--nav-h); flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(11,13,15,0.95);
+}
+.nav-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; }
+.nav-title span { color: var(--orange); }
+.nav-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--teal); display: flex; align-items: center; gap: 6px;
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* Stats bar */
+.stats {
+  display: flex; gap: 1px; background: var(--border);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.stat { flex: 1; background: var(--surface); padding: 10px 16px; }
+.stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.stat-value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+
+/* Main layout */
+.main {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 1fr 300px;
+  gap: 1px; background: var(--border);
+}
+.left { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+.right { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+
+/* Panels */
+.panel {
+  background: var(--surface); padding: 14px 18px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.panel.grow { flex: 1; min-height: 0; }
+.panel-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px; flex-shrink: 0;
+}
+.panel-head h2 {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3);
+}
+.toggle {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--text-3); background: none; border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: 3px; cursor: pointer;
+}
+.toggle:hover { color: var(--text); }
+
+/* Scroll list */
+.scroll { overflow-y: auto; flex: 1; }
+.scroll::-webkit-scrollbar { width: 3px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Task rows */
+.task-row { padding: 9px 0; border-top: 1px solid var(--border); }
+.task-row:first-child { border-top: none; }
+.task-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.task-id { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); flex-shrink: 0; }
+.task-name { font-size: 13px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); display: flex; flex-wrap: wrap; gap: 10px; }
+.task-res { color: var(--amber); }
+
+/* Progress */
+.prog-wrap { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.prog-track { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.prog-fill { height: 100%; background: var(--teal); border-radius: 2px; transition: width 0.5s ease; }
+.prog-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--teal); flex-shrink: 0; }
+
+/* Error tooltip */
+.err-wrap { position: relative; cursor: help; }
+.err-tip {
+  display: none; position: absolute; right: 0; top: 18px;
+  background: #1C2025; border: 1px solid var(--red); color: var(--red);
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  padding: 6px 10px; border-radius: 5px; white-space: normal;
+  max-width: 260px; z-index: 10;
+}
+.err-wrap:hover .err-tip { display: block; }
+
+/* Badges */
+.badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 100px;
+  letter-spacing: 0.04em; flex-shrink: 0;
+}
+.badge-pending   { background: rgba(244,169,63,0.15);  color: var(--amber); }
+.badge-claimed   { background: rgba(138,92,246,0.15);  color: var(--purple); }
+.badge-running   { background: rgba(61,203,122,0.15);  color: var(--teal); }
+.badge-completed { background: rgba(78,161,255,0.15);  color: var(--blue); }
+.badge-failed    { background: rgba(255,92,92,0.15);   color: var(--red); }
+
+/* Worker cards */
+.worker-card { padding: 8px 0; border-top: 1px solid var(--border); }
+.worker-card:first-child { border-top: none; }
+.worker-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.worker-id { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-2); }
+.worker-detail { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); }
+
+/* Resource bar */
+.res-bar-wrap { margin-top: 5px; }
+.res-bar-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--text-3); margin-bottom: 2px; }
+.res-bar-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.res-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+.fill-gpu { background: var(--orange); }
+.fill-mem { background: var(--purple); }
+
+/* Form */
+.form-panel { padding: 14px 18px; border-top: 1px solid var(--border); flex-shrink: 0; overflow-y: auto; }
+.form-panel::-webkit-scrollbar { width: 3px; }
+.form-panel::-webkit-scrollbar-thumb { background: var(--border); }
+.form-title { font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 10px; }
+.form-row { margin-bottom: 8px; }
+.form-row label { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--text-3); text-transform: uppercase; margin-bottom: 3px; }
+.form-row input {
+  width: 100%; background: #1C2025; border: 1px solid var(--border);
+  color: var(--text); padding: 6px 9px; border-radius: 4px;
+  font-size: 12px; font-family: 'Inter', sans-serif;
+}
+.form-row input:focus { outline: none; border-color: var(--teal); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.submit-btn {
+  width: 100%; background: var(--teal); color: var(--bg); border: none;
+  padding: 9px; border-radius: 4px; font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; cursor: pointer; margin-top: 6px;
+}
+.submit-btn:hover { opacity: 0.85; }
+.feedback { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--teal); margin-top: 5px; min-height: 14px; }
+
+.hint { background: #1C2025; border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); margin-bottom: 10px; }
+.hint span { color: var(--teal); }
+.empty { color: var(--text-3); font-size: 12px; font-style: italic; padding: 6px 0; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-title">⚙ Conductor <span>v2</span></div>
+  <div class="nav-badge"><span class="dot"></span>resource-aware · push-driven · self-healing</div>
+</nav>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Pending</div>
+    <div class="stat-value" id="s-pending" style="color:var(--amber)">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Running</div>
+    <div class="stat-value" id="s-running" style="color:var(--teal)">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Completed</div>
+    <div class="stat-value" id="s-completed" style="color:var(--blue)">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Failed</div>
+    <div class="stat-value" id="s-failed" style="color:var(--red)">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Active Workers</div>
+    <div class="stat-value" id="s-workers">0</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Left: tasks -->
+  <div class="left">
+    <div class="panel grow">
+      <div class="panel-head">
+        <h2>Tasks</h2>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="toggle" onclick="toggleCompleted()" id="toggle-btn">Hide completed</button>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-3)" id="task-count"></span>
+        </div>
+      </div>
+      <div class="scroll" id="task-list"><div class="empty">No tasks yet.</div></div>
+    </div>
+  </div>
+
+  <!-- Right: workers + form -->
+  <div class="right">
+    <div class="panel" style="max-height:45%;overflow:hidden;display:flex;flex-direction:column;">
+      <div class="panel-head" style="flex-shrink:0"><h2>Workers</h2></div>
+      <div class="hint">Start: <span>python worker/worker.py --gpus 2 --mem 16</span></div>
+      <div class="scroll" id="worker-list"><div class="empty">No active workers.</div></div>
+    </div>
+
+    <div class="form-panel">
+      <div class="form-title">Submit job</div>
+      <div class="form-row"><label>Job name</label><input id="f-name" placeholder="e.g. bert-finetune"></div>
+      <div class="form-row"><label>Model</label><input id="f-model" value="resnet50"></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Epochs</label><input id="f-epochs" type="number" value="5"></div>
+        <div class="form-row"><label>Sec / epoch</label><input id="f-speed" type="number" value="1" step="0.1"></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label>Required GPUs</label><input id="f-gpus" type="number" value="1" min="1"></div>
+        <div class="form-row"><label>Required mem (GB)</label><input id="f-mem" type="number" value="4" step="0.5"></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label>Priority (1–10)</label><input id="f-priority" type="number" value="5" min="1" max="10"></div>
+        <div class="form-row"><label>Max retries</label><input id="f-retries" type="number" value="3"></div>
+      </div>
+      <button class="submit-btn" onclick="submitJob()">Submit job</button>
+      <div class="feedback" id="feedback"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let showCompleted = true;
+let allTasks = [];
+let allWorkers = [];
+const epochProgress = {};
+
+function timeAgo(iso) {
+  const d = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (d < 60) return `${d}s ago`;
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  return `${Math.floor(d/3600)}h ago`;
+}
+
+function connect() {
+  const ws = new WebSocket("ws://" + location.host + "/ws/dashboard");
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+connect();
+
+function handle(data) {
+  allTasks   = data.tasks   || [];
+  allWorkers = data.workers || [];
+  const s    = data.stats   || {};
+
+  document.getElementById("s-pending").textContent   = s.pending   || 0;
+  document.getElementById("s-running").textContent   = (s.running  || 0) + (s.claimed || 0);
+  document.getElementById("s-completed").textContent = s.completed || 0;
+  document.getElementById("s-failed").textContent    = s.failed    || 0;
+
+  const active = allWorkers.filter(w => w.status !== 'dead').length;
+  document.getElementById("s-workers").textContent = active;
+
+  renderTasks();
+  renderWorkers();
+}
+
+function toggleCompleted() {
+  showCompleted = !showCompleted;
+  document.getElementById("toggle-btn").textContent = showCompleted ? "Hide completed" : "Show completed";
+  renderTasks();
+}
+
+function renderTasks() {
+  const el = document.getElementById("task-list");
+  let tasks = showCompleted ? allTasks : allTasks.filter(t => t.status !== 'completed');
+  document.getElementById("task-count").textContent = `${tasks.length} shown`;
+
+  if (!tasks.length) { el.innerHTML = '<div class="empty">No tasks to show.</div>'; return; }
+
+  el.innerHTML = tasks.map(t => {
+    const isRunning = t.status === 'running' || t.status === 'claimed';
+    const totalEpochs = t.payload?.epochs || '?';
+    const epochs = epochProgress[t.id] || 0;
+    const pct = totalEpochs !== '?' ? Math.round((epochs / totalEpochs) * 100) : 0;
+
+    const prog = isRunning ? `
+      <div class="prog-wrap">
+        <div class="prog-track"><div class="prog-fill" style="width:${pct}%"></div></div>
+        <span class="prog-label">${epochs}/${totalEpochs}</span>
+      </div>` : '';
+
+    const err = t.error_message ? `
+      <div class="err-wrap">
+        <span style="color:var(--red);font-size:11px">⚠</span>
+        <div class="err-tip">${t.error_message}</div>
+      </div>` : '';
+
+    const retry = t.retry_count > 0
+      ? `<span style="color:var(--amber)">retry ${t.retry_count}/${t.max_retries}</span>` : '';
+
+    return `
+      <div class="task-row">
+        <div class="task-top">
+          <span class="task-id">#${t.id}</span>
+          <span class="task-name">${t.name}</span>
+          <span class="badge badge-${t.status}">${t.status}</span>
+          ${err}
+        </div>
+        <div class="task-meta">
+          <span>p${t.priority}</span>
+          <span class="task-res">⬡ ${t.required_gpus} GPU · ${t.required_mem_gb}GB</span>
+          ${t.worker_id ? `<span>${t.worker_id.substring(0,14)}…</span>` : ''}
+          ${retry}
+          <span>${timeAgo(t.updated_at)}</span>
+        </div>
+        ${prog}
+      </div>`;
+  }).join("");
+}
+
+function renderWorkers() {
+  const el = document.getElementById("worker-list");
+  const active = allWorkers.filter(w => w.status !== 'dead');
+  if (!active.length) { el.innerHTML = '<div class="empty">No active workers.</div>'; return; }
+
+  el.innerHTML = active.map(w => {
+    const gpuPct = w.total_gpus > 0
+      ? Math.round(((w.total_gpus - w.available_gpus) / w.total_gpus) * 100) : 0;
+    const memPct = w.total_mem_gb > 0
+      ? Math.round(((w.total_mem_gb - w.available_mem_gb) / w.total_mem_gb) * 100) : 0;
+
+    return `
+      <div class="worker-card">
+        <div class="worker-top">
+          <span class="worker-id">${w.worker_id}</span>
+          <span class="badge badge-${w.status === 'busy' ? 'running' : 'pending'}">${w.status}</span>
+        </div>
+        <div class="worker-detail">
+          ${w.current_task_id ? `task #${w.current_task_id}` : 'idle'}
+          · ${w.total_gpus}GPU / ${w.total_mem_gb}GB total
+          · ${w.available_gpus}GPU / ${w.available_mem_gb}GB free
+          · ${timeAgo(w.last_seen)}
+        </div>
+        <div class="res-bar-wrap">
+          <div class="res-bar-label">GPU ${gpuPct}% used</div>
+          <div class="res-bar-track">
+            <div class="res-bar-fill fill-gpu" style="width:${gpuPct}%"></div>
+          </div>
+        </div>
+        <div class="res-bar-wrap" style="margin-top:4px">
+          <div class="res-bar-label">Mem ${memPct}% used</div>
+          <div class="res-bar-track">
+            <div class="res-bar-fill fill-mem" style="width:${memPct}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function submitJob() {
+  const fb = document.getElementById("feedback");
+  fetch("/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: document.getElementById("f-name").value.trim() || "unnamed-job",
+      payload: {
+        model: document.getElementById("f-model").value,
+        epochs: parseInt(document.getElementById("f-epochs").value),
+        seconds_per_epoch: parseFloat(document.getElementById("f-speed").value),
+      },
+      priority:       parseInt(document.getElementById("f-priority").value),
+      max_retries:    parseInt(document.getElementById("f-retries").value),
+      required_gpus:  parseInt(document.getElementById("f-gpus").value),
+      required_mem_gb: parseFloat(document.getElementById("f-mem").value),
+    })
+  })
+  .then(r => r.json())
+  .then(d => {
+    fb.textContent = `✓ Submitted as task #${d.task.id}`;
+    document.getElementById("f-name").value = "";
+    setTimeout(() => { fb.textContent = ""; }, 3000);
+  })
+  .catch(() => { fb.textContent = "Submission failed."; });
+}
+</script>
+</body>
+</html>
