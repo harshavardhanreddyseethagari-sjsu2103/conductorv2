@@ -157,7 +157,7 @@ conductor/
 └── requirements.txt
 ```
 
-## Honest limitations
+## Limitations
 
 - **Single server** — if the server restarts, in-flight tasks wait for
   heartbeat timeout before recovery. A production setup would run multiple
